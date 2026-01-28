@@ -1,0 +1,555 @@
+<!--
+Arena Tank Game (ALL SYSTEMS + Rank5 + 20 Levels + Checkpoints + Mobile Popup HUD + Save System)
+Save System:
+- Auto-saves player stats, diamonds, checkpoint, class, inventory trees.
+- Home menu has Reset Save button.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Arena Tank Game</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0b0f1a;overflow:hidden;touch-action:none}
+  canvas{display:block}
+  .hud{
+    position:fixed;left:12px;top:12px;color:#e8eefc;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    font-size:14px;line-height:1.3;
+    background:rgba(0,0,0,.25);padding:10px 12px;border-radius:10px;
+    z-index:30;
+  }
+  .bar{height:8px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;margin:6px 0}
+  .fill{height:100%;background:rgba(100,180,255,.9)}
+  .choices{margin-top:8px;display:none}
+  .choices button,.btn{
+    margin:4px;padding:6px 10px;border-radius:10px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.08);color:#fff;cursor:pointer
+  }
+
+  .overlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.75);z-index:50
+  }
+  .panel{
+    background:#111;padding:20px;border-radius:14px;text-align:center;color:#fff;
+    width:min(520px, 92vw);
+  }
+  .panel h2{margin:0 0 8px 0}
+  .sub{opacity:.85;font-size:14px}
+
+  /* Mobile popup HUD */
+  .mobBtn{
+    position:fixed;right:12px;top:12px;z-index:60;
+    width:44px;height:44px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.08);color:#fff;
+    font-size:20px;cursor:pointer;
+    display:none;
+  }
+  .hudPopupOverlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;
+    display:none;align-items:center;justify-content:center;
+  }
+  .hudPopup{
+    width:min(520px,92vw);
+    background:#0f1424;border-radius:16px;
+    border:1px solid rgba(255,255,255,.12);
+    padding:14px;color:#e8eefc;
+  }
+  .hudPopupHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .hudPopupHeader b{font-size:16px}
+  .closeX{
+    width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.08);color:#fff;font-size:18px;cursor:pointer;
+  }
+
+  /* Mobile touch controls */
+  .touch-ui{position:fixed;left:0;right:0;bottom:0;pointer-events:none;z-index:40}
+  .touch-stick{
+    position:fixed;width:140px;height:140px;border-radius:999px;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.14);
+    pointer-events:auto;
+    touch-action:none;
+  }
+  #moveStick{left:18px;bottom:18px}
+  #aimStick{right:18px;bottom:18px}
+  .touch-knob{
+    position:absolute;left:50%;top:50%;width:62px;height:62px;border-radius:999px;
+    transform:translate(-50%,-50%);
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.18);
+  }
+
+  /* Make sure popup mode is used on touch devices */
+  @media (pointer:coarse){
+    .hud{display:none}
+    .mobBtn{display:block}
+  }
+  @media (pointer:fine){
+    .touch-ui{display:none !important}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<!-- Mobile Touch Controls -->
+<div id="touchUI" class="touch-ui" style="display:none">
+  <div class="touch-stick" id="moveStick"><div class="touch-knob" id="moveKnob"></div></div>
+  <div class="touch-stick" id="aimStick"><div class="touch-knob" id="aimKnob"></div></div>
+</div>
+
+<!-- Home -->
+<div id="homeMenu" class="overlay" style="display:none">
+  <div class="panel">
+    <h2>Arena Tank Game</h2>
+    <div class="sub">WASD move • Mouse aim • Hold click shoot</div>
+    <div class="sub" style="margin-top:10px;opacity:.85">Die → return here. You will restart from your checkpoint.</div>
+    <div class="sub" style="margin-top:10px"><b>Checkpoint:</b> Level <span id="cpTxt">1</span> / 20</div>
+    <div id="winMsg" class="sub" style="margin-top:10px;display:none"><b>Victory!</b> You finished all 20 levels.</div>
+    <div style="margin-top:14px">
+      <button id="startBtn" class="btn" style="font-size:18px;padding:10px 14px;border-radius:14px">Start</button>
+      <button id="resetSaveBtn" class="btn" style="margin-left:8px;font-size:14px;opacity:.85">Reset Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Desktop HUD (hidden on mobile by CSS) -->
+<div class="hud" id="hudDesktop">
+  <div><b>HP</b>: <span id="hpTxt"></span></div>
+  <div class="bar"><div class="fill" id="hpFill"></div></div>
+
+  <div><b>XP (Rank <span id="lvTxt"></span>)</b>: <span id="xpTxt"></span></div>
+  <div class="bar"><div class="fill" id="xpFill"></div></div>
+
+  <div>Points: <span id="ptTxt">0</span></div>
+  <div>Diamonds: <span id="diaTxt">0</span></div>
+
+  <div style="margin-top:8px">
+    <button id="shopBtn" class="btn">Shop / Inventory</button>
+  </div>
+
+  <div class="choices" id="statChoices">
+    <b>Rank Up!</b><br>
+    <button data-up="damage">Damage</button>
+    <button data-up="reload">Reload</button>
+    <button data-up="moveSpeed">Speed</button>
+    <button data-up="maxHp">Max HP</button>
+    <button data-up="regen">Regen</button>
+  </div>
+
+  <div class="choices" id="classChoices"></div>
+</div>
+
+<!-- Mobile HUD button -->
+<button id="hudOpenBtn" class="mobBtn">☰</button>
+
+<!-- Mobile popup HUD -->
+<div id="hudPopupOverlay" class="hudPopupOverlay">
+  <div class="hudPopup">
+    <div class="hudPopupHeader">
+      <b>Stats</b>
+      <button id="hudCloseBtn" class="closeX">✕</button>
+    </div>
+
+    <div><b>HP</b>: <span id="hpTxt_m"></span></div>
+    <div class="bar"><div class="fill" id="hpFill_m"></div></div>
+
+    <div><b>XP (Rank <span id="lvTxt_m"></span>)</b>: <span id="xpTxt_m"></span></div>
+    <div class="bar"><div class="fill" id="xpFill_m"></div></div>
+
+    <div>Points: <span id="ptTxt_m">0</span></div>
+    <div>Diamonds: <span id="diaTxt_m">0</span></div>
+
+    <div style="margin-top:8px">
+      <button id="shopBtn_m" class="btn">Shop / Inventory</button>
+    </div>
+
+    <div class="choices" id="statChoices_m" style="display:none;margin-top:10px">
+      <b>Rank Up!</b><br>
+      <button data-up="damage">Damage</button>
+      <button data-up="reload">Reload</button>
+      <button data-up="moveSpeed">Speed</button>
+      <button data-up="maxHp">Max HP</button>
+      <button data-up="regen">Regen</button>
+    </div>
+
+    <div class="choices" id="classChoices_m" style="display:none;margin-top:10px"></div>
+  </div>
+</div>
+
+<!-- Shop popup -->
+<div id="shopOverlay" class="overlay" style="display:none">
+  <div class="panel" style="text-align:left">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Shop / Inventory</h2>
+      <button id="shopClose" class="btn">Close</button>
+    </div>
+    <div class="sub" style="margin:6px 0 10px 0">Buy upgrade trees for 3000 diamonds. Equip 1 tree.</div>
+    <div id="shopBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ===== Core constants =====
+  const UNLOCK_RANK = 5;
+  const SAVE_KEY = "arena_tank_save_v2";
+  const MAX_STAGE = 20;
+  const CHECKPOINT_EVERY = 5;
+
+  // ===== Canvas =====
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  function resize(){
+    canvas.width = Math.floor(innerWidth * DPR);
+    canvas.height = Math.floor(innerHeight * DPR);
+    canvas.style.width = innerWidth + "px";
+    canvas.style.height = innerHeight + "px";
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ===== Utilities =====
+  const rand = (a,b)=>a+Math.random()*(b-a);
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const dist = (ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+  const angleTo = (ax,ay,bx,by)=>Math.atan2(by-ay,bx-ax);
+
+  // ===== Inventory / Upgrade Trees (saved) =====
+  const ownedTrees = new Set(["starter"]);
+  let equippedTreeId = "starter";
+
+  const upgradeTrees = [
+    { id:"starter", name:"Starter Tree", price:0, desc:"Basic upgrades.", bonus:{ } },
+    { id:"berserker", name:"Berserker Tree", price:3000, desc:"+Damage path focused.", bonus:{ damage:+2 } },
+    { id:"guardian", name:"Guardian Tree", price:3000, desc:"+HP/Regen focused.", bonus:{ maxHp:+20, regen:+1 } },
+    { id:"sprinter", name:"Sprinter Tree", price:3000, desc:"+Speed/Reload focused.", bonus:{ moveSpeed:+20, reload:-0.01 } },
+  ];
+
+  // ===== Game state =====
+  const game = { stage: 1, enemiesPerStage: 5, phase:"fight", state:"home", checkpointStage:1, won:false, bestTime:null };
+  const keys = new Set();
+  const mouse = { x:0, y:0, down:false };
+
+  // ===== Player =====
+  const player = {
+    id:"p",
+    x: 2100, y: 2100, r: 18, angle:0,
+    hp:140, maxHp:140,
+    regen:2, regenDelay:1.0, sinceHit:99,
+    rank:1, xp:0, xpNext:70,
+    points:0,
+    diamonds:0,
+    damage:18,
+    moveSpeed:240,
+    reload:0.22,
+    bulletSpeed:520,
+    lastShot:0,
+    classId:"basic",
+    classUnlocked:false,
+    classChosen:false,
+    alive:true
+  };
+
+  // ===== HUD elements =====
+  const hpTxt = document.getElementById("hpTxt");
+  const hpFill = document.getElementById("hpFill");
+  const xpTxt = document.getElementById("xpTxt");
+  const xpFill = document.getElementById("xpFill");
+  const lvTxt = document.getElementById("lvTxt");
+  const ptTxt = document.getElementById("ptTxt");
+  const diaTxt = document.getElementById("diaTxt");
+  const statChoices = document.getElementById("statChoices");
+  const classChoices = document.getElementById("classChoices");
+
+  const hpTxt_m = document.getElementById("hpTxt_m");
+  const hpFill_m = document.getElementById("hpFill_m");
+  const xpTxt_m = document.getElementById("xpTxt_m");
+  const xpFill_m = document.getElementById("xpFill_m");
+  const lvTxt_m = document.getElementById("lvTxt_m");
+  const ptTxt_m = document.getElementById("ptTxt_m");
+  const diaTxt_m = document.getElementById("diaTxt_m");
+  const statChoices_m = document.getElementById("statChoices_m");
+  const classChoices_m = document.getElementById("classChoices_m");
+
+  const homeMenu = document.getElementById("homeMenu");
+  const startBtn = document.getElementById("startBtn");
+  const resetSaveBtn = document.getElementById("resetSaveBtn");
+  const cpTxt = document.getElementById("cpTxt");
+  const winMsg = document.getElementById("winMsg");
+
+  const shopOverlay = document.getElementById("shopOverlay");
+  const shopClose = document.getElementById("shopClose");
+  const shopBody = document.getElementById("shopBody");
+  const shopBtn = document.getElementById("shopBtn");
+  const shopBtn_m = document.getElementById("shopBtn_m");
+
+  const hudOpenBtn = document.getElementById("hudOpenBtn");
+  const hudPopupOverlay = document.getElementById("hudPopupOverlay");
+  const hudCloseBtn = document.getElementById("hudCloseBtn");
+
+  // ---------- Save / Load ----------
+  function serialize(){
+    return {
+      v: 2,
+      player: {
+        rank: player.rank,
+        xp: player.xp,
+        xpNext: player.xpNext,
+        points: player.points,
+        diamonds: player.diamonds,
+        maxHp: player.maxHp,
+        hp: player.hp,
+        regen: player.regen,
+        regenDelay: player.regenDelay,
+        moveSpeed: player.moveSpeed,
+        damage: player.damage,
+        bulletSpeed: player.bulletSpeed,
+        reload: player.reload,
+        classId: player.classId,
+        classUnlocked: player.classUnlocked,
+        classChosen: player.classChosen,
+      },
+      game: {
+        stage: game.stage,
+        checkpointStage: game.checkpointStage ?? 1,
+        won: game.won ?? false,
+        bestTime: game.bestTime ?? null,
+      },
+      inventory: {
+        ownedTrees: Array.from(ownedTrees),
+        equippedTreeId: equippedTreeId ?? null,
+      }
+    };
+  }
+
+  function applySave(d){
+    if (!d || typeof d !== "object") return;
+    if (d.player){
+      const p = d.player;
+      if (typeof p.rank === "number") player.rank = p.rank;
+      if (typeof p.xp === "number") player.xp = p.xp;
+      if (typeof p.xpNext === "number") player.xpNext = p.xpNext;
+      if (typeof p.points === "number") player.points = p.points;
+      if (typeof p.diamonds === "number") player.diamonds = p.diamonds;
+
+      if (typeof p.maxHp === "number") player.maxHp = p.maxHp;
+      if (typeof p.hp === "number") player.hp = Math.min(player.maxHp, p.hp);
+      if (typeof p.regen === "number") player.regen = p.regen;
+      if (typeof p.regenDelay === "number") player.regenDelay = p.regenDelay;
+
+      if (typeof p.moveSpeed === "number") player.moveSpeed = p.moveSpeed;
+      if (typeof p.damage === "number") player.damage = p.damage;
+      if (typeof p.bulletSpeed === "number") player.bulletSpeed = p.bulletSpeed;
+      if (typeof p.reload === "number") player.reload = p.reload;
+
+      if (typeof p.classId === "string") player.classId = p.classId;
+      if (typeof p.classUnlocked === "boolean") player.classUnlocked = p.classUnlocked;
+      if (typeof p.classChosen === "boolean") player.classChosen = p.classChosen;
+    }
+    if (d.game){
+      const g = d.game;
+      if (typeof g.stage === "number") game.stage = g.stage;
+      if (typeof g.checkpointStage === "number") game.checkpointStage = g.checkpointStage;
+      if (typeof g.won === "boolean") game.won = g.won;
+      if (typeof g.bestTime === "number" || g.bestTime === null) game.bestTime = g.bestTime;
+    }
+    if (d.inventory){
+      const inv = d.inventory;
+      if (inv.ownedTrees){
+        ownedTrees.clear();
+        for (const id of inv.ownedTrees) ownedTrees.add(id);
+      }
+      if (typeof inv.equippedTreeId === "string" || inv.equippedTreeId === null){
+        equippedTreeId = inv.equippedTreeId || "starter";
+      }
+    }
+  }
+
+  function saveGame(){
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }catch(e){}
+  }
+  function loadGame(){
+    try{
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      applySave(d);
+    }catch(e){}
+  }
+  function resetSave(){
+    try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
+  }
+
+  // ===== Shop / Inventory UI =====
+  function renderShopAndInventory(){
+    const owned = (id)=>ownedTrees.has(id);
+    shopBody.innerHTML = "";
+    const eq = equippedTreeId;
+
+    const list = document.createElement("div");
+    list.style.display="grid";
+    list.style.gap="10px";
+
+    for (const t of upgradeTrees){
+      const row = document.createElement("div");
+      row.style.padding="10px";
+      row.style.border="1px solid rgba(255,255,255,.12)";
+      row.style.borderRadius="12px";
+      row.style.background="rgba(255,255,255,.04)";
+      row.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div>
+            <div style="font-weight:700">${t.name}</div>
+            <div class="sub">${t.desc}</div>
+            <div class="sub" style="margin-top:4px">Price: ${t.price} 💎</div>
+            <div class="sub" style="margin-top:4px">Status: ${owned(t.id) ? (eq===t.id ? "Equipped" : "Owned") : "Locked"}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
+            ${owned(t.id)
+              ? `<button class="btn" data-equip="${t.id}">${eq===t.id ? "Equipped" : "Equip"}</button>`
+              : `<button class="btn" data-buy="${t.id}">${t.price===0 ? "Free" : "Buy"}</button>`
+            }
+          </div>
+        </div>
+      `;
+      list.appendChild(row);
+    }
+    shopBody.appendChild(list);
+
+    shopBody.querySelectorAll("[data-buy]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const id = btn.getAttribute("data-buy");
+        const tree = upgradeTrees.find(x=>x.id===id);
+        if (!tree) return;
+        if (ownedTrees.has(id)) return;
+        if (tree.price===0 || player.diamonds >= tree.price){
+          if (tree.price>0) player.diamonds -= tree.price;
+          ownedTrees.add(id);
+          equippedTreeId = id;
+          applyTreeBonus(tree);
+          renderShopAndInventory();
+          saveGame();
+        }
+      });
+    });
+    shopBody.querySelectorAll("[data-equip]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const id = btn.getAttribute("data-equip");
+        if (!ownedTrees.has(id)) return;
+        equippedTreeId = id;
+        const tree = upgradeTrees.find(x=>x.id===id);
+        applyTreeBonus(tree);
+        renderShopAndInventory();
+        saveGame();
+      });
+    });
+  }
+
+  function applyTreeBonus(tree){
+    // apply small one-time bonuses (simple version)
+    if (!tree || !tree.bonus) return;
+    if (tree.bonus.damage) player.damage += tree.bonus.damage;
+    if (tree.bonus.maxHp){ player.maxHp += tree.bonus.maxHp; player.hp += tree.bonus.maxHp; }
+    if (tree.bonus.regen) player.regen += tree.bonus.regen;
+    if (tree.bonus.moveSpeed) player.moveSpeed += tree.bonus.moveSpeed;
+    if (tree.bonus.reload) player.reload = Math.max(0.08, player.reload + tree.bonus.reload);
+  }
+
+  function openShop(){
+    renderShopAndInventory();
+    shopOverlay.style.display="flex";
+  }
+  function closeShop(){
+    shopOverlay.style.display="none";
+  }
+  function menusOpen(){
+    return shopOverlay.style.display==="flex" || hudPopupOverlay.style.display==="flex" || game.state==="home";
+  }
+
+  shopBtn.addEventListener("click", openShop);
+  shopBtn_m.addEventListener("click", openShop);
+  shopClose.addEventListener("click", closeShop);
+
+  // ===== Mobile popup HUD logic =====
+  function openHudPopup(){
+    hudPopupOverlay.style.display="flex";
+  }
+  function closeHudPopup(){
+    hudPopupOverlay.style.display="none";
+  }
+  hudOpenBtn.addEventListener("click", openHudPopup);
+  hudCloseBtn.addEventListener("click", closeHudPopup);
+  hudPopupOverlay.addEventListener("click", (e)=>{ if(e.target===hudPopupOverlay) closeHudPopup(); });
+
+  // ===== Input =====
+  window.addEventListener("keydown", (e)=> keys.add(e.key.toLowerCase()));
+  window.addEventListener("keyup", (e)=> keys.delete(e.key.toLowerCase()));
+  window.addEventListener("mousemove", (e)=> { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener("mousedown", ()=> mouse.down = true);
+  window.addEventListener("mouseup", ()=> mouse.down = false);
+
+  // Touch sticks
+  const touch = {
+    enabled: ("ontouchstart" in window) || (navigator.maxTouchPoints > 0),
+    move: { active:false, id:null, ox:0, oy:0, vx:0, vy:0 },
+    aim:  { active:false, id:null, ox:0, oy:0, vx:1, vy:0 },
+    shoot:false
+  };
+
+  const touchUI = document.getElementById("touchUI");
+  const moveStick = document.getElementById("moveStick");
+  const aimStick  = document.getElementById("aimStick");
+  const moveKnob  = document.getElementById("moveKnob");
+  const aimKnob   = document.getElementById("aimKnob");
+
+  if (touch.enabled && touchUI) touchUI.style.display = "block";
+
+  function stickCenter(which){
+    const knob = (which==="move") ? moveKnob : aimKnob;
+    if (!knob) return;
+    knob.style.left = "50%";
+    knob.style.top  = "50%";
+    knob.style.transform = "translate(-50%,-50%)";
+  }
+
+  function stickStart(which, e){
+    if (!touch.enabled) return;
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const stick = (which==="move") ? moveStick : aimStick;
+    const rect = stick.getBoundingClientRect();
+    const ox = rect.left + rect.width/2;
+    const oy = rect.top  + rect.height/2;
+    const S = (which==="move") ? touch.move : touch.aim;
+    S.active = true;
+    S.id = t.identifier;
+    S.ox = ox; S.oy = oy;
+    stickMove(which, e);
+  }
+
+  function stickMove(which, e){
+    const S = (which==="move") ? touch.move : touch.aim;
+    if (!S.active) return;
+    let t=null;
+    for (const ct of e.changedTouches) if (ct.identifier === S.id) { t = ct; break; }
+    if (!t) return;
+    e.preventDefault();
+    const dx = t.clientX - S.ox;
+    const dy = t.clientY - S.oy;
+    const R = 46;
+    const L = Math.hypot(dx,dy) || 1;
+    const cx = (L > R) ? (dx/L*R) : dx;
+    const cy = (L > R) ? (dy/L*R) : dy;
+    S.vx = cx / R;
+    S.vy = cy / R;
+
+    const knob = (which==="move") ? moveKnob
